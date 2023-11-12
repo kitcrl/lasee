@@ -4,7 +4,7 @@
 uint8_t mcusr_mirror __attribute__ ((section (".noinit")));
 void get_mcusr(void) \
   __attribute__((naked)) \
-  __attribute__((section(".init3"e:\opt\ua\lasee\v1.0\wirelessjh\SolarRTU\ua\__lutil.cpp e:\opt\ua\lasee\v1.0\wirelessjh\SolarRTU\ua\__lutil.h e:\opt\ua\lasee\v1.0\wirelessjh\SolarRTU\ua\um.cpp e:\opt\ua\lasee\v1.0\wirelessjh\SolarRTU\ua\um.h e:\opt\ua\lasee\v1.0\wirelessjh\SolarRTU\ua\__lsocket.cpp e:\opt\ua\lasee\v1.0\wirelessjh\SolarRTU\ua\__lsocket.h)));
+  __attribute__((section(".init3")));
 void get_mcusr(void)
 {
   mcusr_mirror = MCUSR;

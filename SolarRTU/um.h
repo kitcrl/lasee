@@ -41,11 +41,12 @@ extern "C"
 
 
 
-#include <LaseeEthernet.h>
+//#include <LaseeEthernet.h>
 
 
 #include "__lsocket.h"
 #include "__lutil.h"
+#include "__lrs485.h"
 
 
 #if defined __cplusplus
@@ -71,15 +72,14 @@ class cRTU
 public :
   cRTU();
 
-
   cLUtil*    _putl;
   cLSocket*  _psck;
-
+  cLRS485*   _prsf;
 
   Button button;         // Size : 4
   Buzzer buzzer;         // Size : 6
   EEPROMUtil eepromUtil; // Size : 1
-  LaseeServer server; // Size : 
+  //LaseeServer server; // Size : 
 
   Display display;
   Debug debug; // Size : 259
@@ -88,7 +88,10 @@ public :
   HardwareSerial*  dserial;
 
   uint32_t   SR;
-  char buf[1024];
+  uint8_t buf[1024];
+  uint8_t rsbuf[2][64];
+
+  uint16_t   count[2];
 
 private :
   u32 curMilliSec;
@@ -102,8 +105,6 @@ public :
   void isBlackout();
   void Init();
   void Loop();
-  void tcpc();
-
   //Util util; // Size : 1
 };
 

@@ -18,12 +18,12 @@
 
 cLSocket::cLSocket()
 {
-  //init();
+  init();
 }
 
 void cLSocket::init()
 {
-  Ethernet.init(SPI_SS);
+  eth.init(SPI_SS);
 }
 
 void cLSocket::to_ipv4(uint8_t* ip)
@@ -49,18 +49,23 @@ void cLSocket::to_ipv4(uint8_t* ip)
 
 void cLSocket::ready(uint8_t* ip)
 {
+  _putl->dprintf("SOCKET", "ready \r\n");
   if (eth.linkStatus() == LinkON)
   {
-    if (Ethernet.begin(mac) == 0)
+    if (eth.begin(mac) == 0)
     {
-      _putl->dprintf("SOCKET 1", "DHCP Required \r\n");
+      _putl->dprintf("SOCKET", "DHCP Required \r\n");
       to_ipv4(ip);
       eth.begin(mac, this->ip);
     }
     else
     {
-      //_putl->dprintf("2 SOCKET", "DHCP Enabled \r\n");
+      _putl->dprintf("SOCKET", "DHCP Enabled \r\n");
     }
+  }
+  else
+  {
+    _putl->dprintf("SOCKET", "Link Down \r\n");
   }
 }
 

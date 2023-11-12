@@ -3,6 +3,7 @@
 
 
 
+
 #ifdef INCLUDE_WIRELESS_2560
 extern volatile unsigned long timer0_millis;
 #endif
@@ -14,7 +15,7 @@ LaseeTimer timer;      // Size : 14
 
 u8 rxBuf[UINT8_MAX]; // Size : 256
 u8 rxIdx = 0;
-byte mac[6];
+//byte mac[6];
 char debugBuf[UINT8_MAX]; // Size : 256
 
 
@@ -67,6 +68,9 @@ cRTU::cRTU()
 {
   _putl = new cLUtil(&Serial3);
   _psck = new cLSocket();
+  _prsf = new cLRS485(&Serial4);
+
+  _prsf->_putl = _psck->_putl = _putl;
 }
 
 void cRTU::isBlackout()
@@ -150,9 +154,11 @@ void cRTU::Init()
   weatherInfo.init();
   whmInfo.init();
   debug.init();
-  eepromUtil.readEEPROM();
-  server.init();
-  rs485Device.init();
+  eepromUtil.readEEPROM(_psck->mac);
+  //server.init();
+  //rs485Device.init();
+
+  _prsf->init();
 
   #if defined(INCLUDE_WIRELESS_DISPLAY)
   display.run();
@@ -162,8 +168,10 @@ void cRTU::Init()
             FIRM_VER, rtuInfo.mcno, rtuInfo.invQty, rtuInfo.weatherQty, rtuInfo.prQty, rtuInfo.whmQty);
   DebugSerial.print(debugBuf);
 
-  sprintf_P(debugBuf, (const char *)F("Mac Addr : %02x-%02x-%02x-%02x-%02x-%02x"), mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-  DebugSerial.println(debugBuf);
+  //sprintf_P(debugBuf, (const char *)F("Mac Addr : %02x-%02x-%02x-%02x-%02x-%02x"), mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  //DebugSerial.println(debugBuf);
+
+  _putl->dprintf("setup","Mac Addr : %02x-%02x-%02x-%02x-%02x-%02x \r\n", _psck->mac[0], _psck->mac[1], _psck->mac[2], _psck->mac[3], _psck->mac[4], _psck->mac[5]);
 
   for (u8 i = 0; i < rtuInfo.invQty; i++)
   {
@@ -191,9 +199,8 @@ void cRTU::Init()
 
   wdt_enable(8); // https://www.nongnu.org/avr-libc/user-manual/group__avr__watchdog.html
 
-
-
-  server.beginEthernet();
+  _psck->ready();
+  //server.beginEthernet();
 }
 
 #if 0
@@ -267,81 +274,166 @@ void cRTU::Loop()
 #define SERVER_PORT   80
 
 
-void raw_buffer(uint8_t* b, int32_t s, uint8_t* o)
-{
-  int32_t i = 0;
 
-  for ( i=0 ; i<s ; i++ )
-  {
-    sprintf(o+i*3, "%02X ", *(b+i));
-  }
-}
-
-
-void cRTU::tcpc()
+static void tcpc(cRTU* p)
 {
   int32_t e = 0;
   uint8_t raw[1024] = {0};
 
-  if ( (SR & CONNECTED_TO_SERVER) == 0 )
+  if ( (p->SR & CONNECTED_TO_SERVER) == 0 )
   {
-    _putl->dprintf("SOCKET", "Connect to the %s:%d\r\n", SERVER_IP, SERVER_PORT);
-    e = _psck->connect(SERVER_IP, SERVER_PORT);
+    p->_putl->dprintf("SOCKET", "Connect to the %s:%d\r\n", SERVER_IP, SERVER_PORT);
+    e = p->_psck->connect(SERVER_IP, SERVER_PORT);
     if ( !e )
     {
-      SR &= ~CONNECTED_TO_SERVER;
-      _putl->dprintf("SOCKET", " connect fail (%d) \r\n", e);
+      p->SR &= ~CONNECTED_TO_SERVER;
+      p->_putl->dprintf("SOCKET", " connect fail (%d) \r\n", e);
     }
     else
     {
-      SR |= CONNECTED_TO_SERVER;
-      _putl->dprintf("SOCKET", " connect success (%d) \r\n", e);
+      p->SR |= CONNECTED_TO_SERVER;
+      p->_putl->dprintf("SOCKET", " connect success (%d) \r\n", e);
     }
-    _putl->dprintf("SOCKET", "SR -> %08X\r\n", SR);
+    p->_putl->dprintf("SOCKET", "SR -> %08X\r\n", p->SR);
   }
   else
   {
-    e = _psck->connected();
+    e = p->_psck->connected();
     if ( e == 0 )
     {
-      _putl->dprintf("SOCKET", "SR -> %08X DISCONNECTED \r\n", SR);
-      SR &= ~CONNECTED_TO_SERVER;
+      p->_putl->dprintf("SOCKET", "SR -> %08X DISCONNECTED \r\n", p->SR);
+      p->SR &= ~CONNECTED_TO_SERVER;
     }
     else
     {
-      e = _psck->write(0, "Hello World", 11);
-      _putl->dprintf("SOCKET", "write : %d %s\r\n", e, "Hello World");
+      #if 0
+      e = p->_psck->write(0, "Hello World", 11);
+      p->_putl->dprintf("SOCKET", "write : %s (%d)\r\n", "Hello World", e);
 
-      e = _psck->read(0, buf, 1024);
-      if ( e > 0 ) _putl->dprintf("SOCKET", "read : %d, %s \r\n", e, buf);
+      e = p->_psck->read(0, p->buf, 1024);
+      p->buf[e] = 0;
+      if ( e > 0 ) p->_putl->dprintf("SOCKET", "read : %s (%d) \r\n", p->buf, e);
 
-      raw_buffer(buf, e, raw);
-      _putl->dprintf("SOCKET", "raw %s \r\n", raw);
+      p->_putl->raw_buffer(p->buf, e, raw);
+      p->_putl->dprintf("SOCKET", "raw %s \r\n", raw);
+      #endif
     }
+  }
+}
+
+
+void write_to_server(cRTU* p, uint8_t* b, int32_t sz)
+{
+  int32_t e = 0;
+  uint8_t raw[1024] = {0};
+
+  e = p->_psck->connected();
+  if ( e == 0 )
+  {
+    p->_putl->dprintf("SOCKET", "SR -> %08X DISCONNECTED \r\n", p->SR);
+    p->SR &= ~CONNECTED_TO_SERVER;
+  }
+  else
+  {
+    e = p->_psck->write(0, "Hello World", 11);
+    p->_putl->dprintf("SOCKET", "write : %s (%d)\r\n", "Hello World", e);
+
+    e = p->_psck->read(0, p->buf, 1024);
+    p->buf[e] = 0;
+    if ( e > 0 ) p->_putl->dprintf("SOCKET", "read : %s (%d) \r\n", p->buf, e);
+
+    p->_putl->raw_buffer(p->buf, e, raw);
+    p->_putl->dprintf("SOCKET", "raw %s \r\n", raw);
   }
 
 
 }
+
+
+static void rsfp(cRTU* p)
+{
+  int32_t e = 0;
+  int32_t i = 0;
+  uint8_t raw[1024] = {0};
+
+  {
+    uint16_t crc16;
+    p->rsbuf[0][i] = 0x01;
+    i++;
+    p->rsbuf[0][i] = 0x04;
+    i++;
+    p->rsbuf[0][i] = 0x13;
+    i++;
+    p->rsbuf[0][i] = 0x87;
+    i++;
+    p->rsbuf[0][i] = 0x00;
+    i++;
+    p->rsbuf[0][i] = 0x34;
+    i++;
+    p->rsbuf[0][i] = 0x45;
+    i++;
+    p->rsbuf[0][i] = 0x70;
+    i++;
+
+    #if 0
+    crc16 = p->_putl->CRC16(p->rsbuf[0], 6);
+    p->rsbuf[0][i] = crc16 / 0x100;
+    i++;
+    p->rsbuf[0][i] = crc16 % 0x100;
+    i++;
+    #endif
+  }
+
+  e = p->_prsf->write(p->rsbuf[0],i);
+  p->_putl->raw_buffer(p->rsbuf[0], e, raw);
+  p->_putl->dprintf("RS485", "raw %s (%d)\r\n", raw, e);
+
+  #if 1
+  e = p->_prsf->read(p->rsbuf[1], 64);
+  if ( e > 0 )
+  {
+    p->_putl->raw_buffer(p->rsbuf[1], e, raw);
+    p->_putl->dprintf("RS485", "raw %s (%d)\r\n", raw, e);
+
+    write_to_server(p, p->rsbuf[1], e);
+  }
+  #endif
+}
+
+
+
+
+
+
+void periodic_call(cRTU* p, void(*f)(cRTU*), int32_t lcount)
+{
+  if ( !( p->count[0] % 0x1F ) )
+  {
+    p->count[1] ++;
+
+    if ( !( p->count[1] % lcount ) )
+    {
+      p->count[1] = 0;
+      f(p);
+    }
+    p->count[0] = 0;
+  }
+}
+
+
 
 #if 1
 void cRTU::Loop()
 {
   wdt_reset();
 
-  tcpc();
+  count[0] ++;
 
-  return;
+  tcpc(this);
+
+  periodic_call(this, rsfp, 6000);
 
 
-
-  buzzer.run();
-  buzzer.play(true);
-  return;
-  if ( (SR & CONNECTED_TO_SERVER) == 0 )
-  {
-    server.send();
-    SR |= CONNECTED_TO_SERVER;
-  }
 }
 #endif
 

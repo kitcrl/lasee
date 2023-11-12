@@ -5,16 +5,24 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <inverter.h>
+#include <HardwareSerial.h>
+#include "__lutil.h"
 
 class cLRS485
 {
 public:
-  cLRS485();
+  cLRS485(HardwareSerial* p);
   void init();
   int32_t read(uint8_t* b, int32_t sz, int32_t ms=0);
   int32_t write(uint8_t* b, int32_t sz, int32_t ms=0);
 
+
+  HardwareSerial*  srl;
+
   Inverter invtr;
+
+  cLUtil*   _putl;
+
 };
 
 

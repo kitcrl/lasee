@@ -12,7 +12,7 @@ class cLSocket
 public:
   cLSocket();
   void init();
-  void ready(uint8_t* ip);
+  void ready(uint8_t* ip=0);
   int32_t connect(uint8_t* ip, int16_t port);
   int32_t connected();
   int32_t close();
