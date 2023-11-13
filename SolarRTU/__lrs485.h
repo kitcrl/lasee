@@ -4,7 +4,6 @@
 #include <Arduino.h>
 #include <stdio.h>
 #include <stdint.h>
-#include <inverter.h>
 #include <HardwareSerial.h>
 #include "__lutil.h"
 
@@ -18,8 +17,6 @@ public:
 
 
   HardwareSerial*  srl;
-
-  Inverter invtr;
 
   cLUtil*   _putl;
 

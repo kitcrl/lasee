@@ -48,24 +48,31 @@ extern "C"
 #include "__lutil.h"
 #include "__lrs485.h"
 
+#include "__linverter_info.h"
 
 #if defined __cplusplus
 }
 #endif
 
 #if 0
-+----+----+ +----+----+  +----+----+ +----+----+
-+----+----+ +----+----+  +----+----+ +----+----+
- ^^^                                          ^
- |||                                          |
- |||                                          +---------------- 
- ||+----------------------------------------------------------- 
- |+------------------------------------------------------------ 
- +------------------------------------------------------------- connected to the server
++----+----+ +----+----+
++----+----+ +----+----+
+ ^^^                 ^
+ |||                 |
+ |||                 +---------------- 
+ ||+---------------------------------- 
+ |+----------------------------------- 
+ +------------------------------------ connected to the server
 #endif
 
 
-#define CONNECTED_TO_SERVER                   0x80000000
+#define CONNECTED_TO_SERVER                   0x8000
+
+
+typedef struct stPeriodicCall
+{
+  int count[2];
+};
 
 class cRTU
 {
@@ -87,11 +94,14 @@ public :
 
   HardwareSerial*  dserial;
 
-  uint32_t   SR;
+  uint16_t   SR;
   uint8_t buf[1024];
   uint8_t rsbuf[2][64];
 
-  uint16_t   count[2];
+
+  stPeriodicCall  _prdc;
+
+  cLInverterInfo  _invinf;
 
 private :
   u32 curMilliSec;

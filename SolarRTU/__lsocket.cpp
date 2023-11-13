@@ -1,14 +1,7 @@
 #include <Arduino.h>
 #include <avr/wdt.h>
 #include <ENV.h>
-#include <SPI.h>
 #include <Ethernet.h>
-#include <Temp.h>
-#include <RTUInfo.h>
-#include <InverterInfo.h>
-#include <Util.h>
-#include <EEPROMUtil.h>
-
 
 
 #include <stdint.h>
@@ -49,23 +42,23 @@ void cLSocket::to_ipv4(uint8_t* ip)
 
 void cLSocket::ready(uint8_t* ip)
 {
-  _putl->dprintf("SOCKET", "ready \r\n");
+  _putl->dprintf(__FILE__,__LINE__,"ready \r\n");
   if (eth.linkStatus() == LinkON)
   {
     if (eth.begin(mac) == 0)
     {
-      _putl->dprintf("SOCKET", "DHCP Required \r\n");
+      _putl->dprintf(__FILE__,__LINE__,"DHCP Required \r\n");
       to_ipv4(ip);
       eth.begin(mac, this->ip);
     }
     else
     {
-      _putl->dprintf("SOCKET", "DHCP Enabled \r\n");
+      _putl->dprintf(__FILE__,__LINE__,"DHCP Enabled \r\n");
     }
   }
   else
   {
-    _putl->dprintf("SOCKET", "Link Down \r\n");
+    _putl->dprintf(__FILE__,__LINE__,"Link Down \r\n");
   }
 }
 

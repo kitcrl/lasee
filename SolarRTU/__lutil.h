@@ -39,13 +39,15 @@ const uint16_t gCRCTable[] PROGMEM = {
 		0X4400, 0X84C1, 0X8581, 0X4540, 0X8701, 0X47C0, 0X4680, 0X8641,
 		0X8201, 0X42C0, 0X4380, 0X8341, 0X4100, 0X81C1, 0X8081, 0X4040};
 
+
 class cLUtil
 {
 public:
   cLUtil(HardwareSerial*);
-  void dprintf(char* type, const char* fmt,...);
+  void dprintf(uint8_t* file, int32_t line, const char* fmt,...);
   uint16_t CRC16(uint8_t* nData, uint16_t wLength);
-  void raw_buffer(uint8_t* b, int32_t s, uint8_t* o);
+  int32_t change_seq(uint8_t* b, int32_t bit);
+  int32_t raw_buffer(uint8_t* b, int32_t s, uint8_t* o);
 
 
   HardwareSerial*  srl;

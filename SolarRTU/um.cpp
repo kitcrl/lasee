@@ -1,6 +1,14 @@
 #include "arduino.h"
 #include "um.h"
 
+#include "__inverters.h"
+
+
+//#define SERVER_IP    "api.lasee.io"
+#define SERVER_IP    "192.168.0.9"
+#define SERVER_PORT   80
+
+
 
 
 
@@ -64,6 +72,188 @@ HardwareSerial &DebugSerial = Serial3; // Debug(Check) (TTL) Size : 157
 #endif
 
 
+
+
+
+
+
+
+
+
+
+
+
+static int tcpc(cRTU* p)
+{
+  int e = 0;
+  char raw[1024] = {0};
+
+  if ( (p->SR & CONNECTED_TO_SERVER) == 0 )
+  {
+    p->_putl->dprintf(__FILE__,__LINE__,"Connect to the %s:%d\r\n", SERVER_IP, SERVER_PORT);
+    e = p->_psck->connect(SERVER_IP, SERVER_PORT);
+    if ( !e )
+    {
+      p->SR &= ~CONNECTED_TO_SERVER;
+      p->_putl->dprintf(__FILE__,__LINE__," connect fail (%d) \r\n", e);
+    }
+    else
+    {
+      p->SR |= CONNECTED_TO_SERVER;
+      p->_putl->dprintf(__FILE__,__LINE__," connect success (%d) \r\n", e);
+    }
+    p->_putl->dprintf(__FILE__,__LINE__,"SR -> %04X\r\n", p->SR);
+  }
+  else
+  {
+    e = p->_psck->connected();
+    if ( e == 0 )
+    {
+      p->_putl->dprintf(__FILE__,__LINE__,"SR -> %04X DISCONNECTED \r\n", p->SR);
+      p->SR &= ~CONNECTED_TO_SERVER;
+    }
+  }
+  return e;
+}
+
+
+
+
+
+
+
+int make_server_packet(cLInverterInfo* p, char* out)
+{
+  int e = 0;
+  int i = 0;
+
+  #if 1
+  //*(out+i) = 
+  sprintf_P(out, (const char *)F("GET /inverter_v2?data=%04x%02x%04x%02x%04x%04x%04x%04x%08lx%04x%04x%04x%04x%04x%04x%04x%04x%04x%08lx%08lx%08lx%04x%04x%04x%04x%08lx%08lx%08lx%04x%04x"),
+
+    0,  // rtuInfo.mcno,                              // 4
+    1,  // invSeq + 1,                                // 2
+    p->invCode,                   // 4
+    p->ccErr,                     // 2
+    p->invTemp,                   // 4
+    p->inner,                     // 4
+    p->solarVolt,                 // 4
+    p->solarCurrent,              // 4
+    p->solarPower,                // 8
+    p->invVoltR,                  // 4
+    p->invVoltS,                  // 4
+    p->invVoltT,                  // 4
+    p->invCurrentR,               // 4
+    p->invCurrentS,               // 4
+    p->invCurrentT,               // 4
+    p->invVoltRMax,               // 4
+    p->invVoltSMax,               // 4
+    p->invVoltTMax,               // 4
+    p->invPower,                  // 8
+    p->invPowerMax,               // 8
+    p->invPowerReactive,          // 8
+    p->invFrequency,              // 4
+    p->invFrequencyMax,           // 4
+    p->invFrequencyMin,           // 4
+    p->invPf,                     // 4
+    p->daily,                     // 8
+    (u32)(p->total / UINT32_MAX), // 8
+    (u32)(p->total % UINT32_MAX), // 8
+    p->resistance,                // 4
+    p->currentLeak                // 4 
+  );
+
+  e = strlen(out);
+  #endif
+  return e;
+}
+
+
+int write_to_server(cRTU* p, char* b, int sz)
+{
+  int e = 0;
+  char raw[1024] = {0};
+
+  e = p->_psck->connected();
+  if ( e == 0 )
+  {
+    p->_putl->dprintf(__FILE__,__LINE__,"SR -> %04X DISCONNECTED \r\n", p->SR);
+    p->SR &= ~CONNECTED_TO_SERVER;
+  }
+  else
+  {
+    e = p->_psck->write(0, b, sz);
+    p->_putl->dprintf(__FILE__,__LINE__,"write : %s (%d)\r\n", b, e);
+
+    e = p->_psck->read(0, p->buf, 1024);
+    p->buf[e] = 0;
+    if ( e > 0 ) p->_putl->dprintf(__FILE__,__LINE__,"read : %s (%d) \r\n", p->buf, e);
+  }
+
+  return e;
+}
+
+static int rsfp(cRTU* p)
+{
+  int e = 0;
+  int sz = 0;
+  char raw[1024] = {0};
+
+  sz = make_inverter_packet(p->_putl, __INVERTERS_HANHWA_SUNGROW, p->rsbuf[0], 64);
+
+  e = p->_prsf->write(p->rsbuf[0],sz);
+  if ( e < 0 )
+  {
+    return e;
+  }
+  p->_putl->raw_buffer(p->rsbuf[0], e, raw);
+  p->_putl->dprintf(__FILE__,__LINE__,"write raw %s (%d)\r\n", raw, e);
+
+  e = p->_prsf->read(p->rsbuf[1], 64);
+  if ( e < 0 )
+  {
+    return e;
+  }
+  p->_putl->raw_buffer(p->rsbuf[1], e, raw);
+  p->_putl->dprintf(__FILE__,__LINE__,"read  raw %s (%d)\r\n", raw, e);
+
+
+  assign_inverter_packet(p->_putl, __INVERTERS_HANHWA_SUNGROW, p->rsbuf[1], e, &p->_invinf);
+
+
+  return e;
+}
+
+
+
+
+int periodic_call(cRTU* p, stPeriodicCall* prd, int (*f)(cRTU*), int lcount)
+{
+  int e = 0;
+
+  prd->count[0] ++;
+  if ( !( prd->count[0] % 0x1F ) )
+  {
+    prd->count[1] ++;
+
+    if ( !( prd->count[1] % lcount ) )
+    {
+      prd->count[1] = 0;
+      e = f(p);
+    }
+    prd->count[0] = 0;
+  }
+  return e;
+}
+
+
+
+
+
+
+
+
+
 cRTU::cRTU()
 {
   _putl = new cLUtil(&Serial3);
@@ -72,6 +262,25 @@ cRTU::cRTU()
 
   _prsf->_putl = _psck->_putl = _putl;
 }
+
+#if 1
+void cRTU::Loop()
+{
+  int e = 0;
+  wdt_reset();
+
+  tcpc(this);
+  e = periodic_call(this, &this->_prdc, rsfp, 6000);
+  if ( e > 0 )
+  {
+    uint8_t out[1024];
+    e = make_server_packet(&this->_invinf, out);
+    _putl->dprintf(__FILE__,__LINE__,"write : %s\r\n", out);
+    write_to_server(this, out, e);
+  }
+}
+#endif
+
 
 void cRTU::isBlackout()
 {
@@ -100,6 +309,8 @@ void cRTU::isBlackout()
   }
 #endif
 }
+
+
 
 void cRTU::Init()
 {
@@ -171,7 +382,7 @@ void cRTU::Init()
   //sprintf_P(debugBuf, (const char *)F("Mac Addr : %02x-%02x-%02x-%02x-%02x-%02x"), mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   //DebugSerial.println(debugBuf);
 
-  _putl->dprintf("setup","Mac Addr : %02x-%02x-%02x-%02x-%02x-%02x \r\n", _psck->mac[0], _psck->mac[1], _psck->mac[2], _psck->mac[3], _psck->mac[4], _psck->mac[5]);
+  _putl->dprintf(__FILE__,__LINE__,"Mac Addr : %02x-%02x-%02x-%02x-%02x-%02x \r\n", _psck->mac[0], _psck->mac[1], _psck->mac[2], _psck->mac[3], _psck->mac[4], _psck->mac[5]);
 
   for (u8 i = 0; i < rtuInfo.invQty; i++)
   {
@@ -202,6 +413,43 @@ void cRTU::Init()
   _psck->ready();
   //server.beginEthernet();
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////
 
 #if 0
 void cRTU::Loop()
@@ -266,174 +514,6 @@ void cRTU::Loop()
     buzzer.play(BUZZER_TIC);
     server.serverFlag = true;
   }
-}
-#endif
-
-
-#define SERVER_IP    "192.168.0.9"
-#define SERVER_PORT   80
-
-
-
-static void tcpc(cRTU* p)
-{
-  int32_t e = 0;
-  uint8_t raw[1024] = {0};
-
-  if ( (p->SR & CONNECTED_TO_SERVER) == 0 )
-  {
-    p->_putl->dprintf("SOCKET", "Connect to the %s:%d\r\n", SERVER_IP, SERVER_PORT);
-    e = p->_psck->connect(SERVER_IP, SERVER_PORT);
-    if ( !e )
-    {
-      p->SR &= ~CONNECTED_TO_SERVER;
-      p->_putl->dprintf("SOCKET", " connect fail (%d) \r\n", e);
-    }
-    else
-    {
-      p->SR |= CONNECTED_TO_SERVER;
-      p->_putl->dprintf("SOCKET", " connect success (%d) \r\n", e);
-    }
-    p->_putl->dprintf("SOCKET", "SR -> %08X\r\n", p->SR);
-  }
-  else
-  {
-    e = p->_psck->connected();
-    if ( e == 0 )
-    {
-      p->_putl->dprintf("SOCKET", "SR -> %08X DISCONNECTED \r\n", p->SR);
-      p->SR &= ~CONNECTED_TO_SERVER;
-    }
-    else
-    {
-      #if 0
-      e = p->_psck->write(0, "Hello World", 11);
-      p->_putl->dprintf("SOCKET", "write : %s (%d)\r\n", "Hello World", e);
-
-      e = p->_psck->read(0, p->buf, 1024);
-      p->buf[e] = 0;
-      if ( e > 0 ) p->_putl->dprintf("SOCKET", "read : %s (%d) \r\n", p->buf, e);
-
-      p->_putl->raw_buffer(p->buf, e, raw);
-      p->_putl->dprintf("SOCKET", "raw %s \r\n", raw);
-      #endif
-    }
-  }
-}
-
-
-void write_to_server(cRTU* p, uint8_t* b, int32_t sz)
-{
-  int32_t e = 0;
-  uint8_t raw[1024] = {0};
-
-  e = p->_psck->connected();
-  if ( e == 0 )
-  {
-    p->_putl->dprintf("SOCKET", "SR -> %08X DISCONNECTED \r\n", p->SR);
-    p->SR &= ~CONNECTED_TO_SERVER;
-  }
-  else
-  {
-    e = p->_psck->write(0, "Hello World", 11);
-    p->_putl->dprintf("SOCKET", "write : %s (%d)\r\n", "Hello World", e);
-
-    e = p->_psck->read(0, p->buf, 1024);
-    p->buf[e] = 0;
-    if ( e > 0 ) p->_putl->dprintf("SOCKET", "read : %s (%d) \r\n", p->buf, e);
-
-    p->_putl->raw_buffer(p->buf, e, raw);
-    p->_putl->dprintf("SOCKET", "raw %s \r\n", raw);
-  }
-
-
-}
-
-
-static void rsfp(cRTU* p)
-{
-  int32_t e = 0;
-  int32_t i = 0;
-  uint8_t raw[1024] = {0};
-
-  {
-    uint16_t crc16;
-    p->rsbuf[0][i] = 0x01;
-    i++;
-    p->rsbuf[0][i] = 0x04;
-    i++;
-    p->rsbuf[0][i] = 0x13;
-    i++;
-    p->rsbuf[0][i] = 0x87;
-    i++;
-    p->rsbuf[0][i] = 0x00;
-    i++;
-    p->rsbuf[0][i] = 0x34;
-    i++;
-    p->rsbuf[0][i] = 0x45;
-    i++;
-    p->rsbuf[0][i] = 0x70;
-    i++;
-
-    #if 0
-    crc16 = p->_putl->CRC16(p->rsbuf[0], 6);
-    p->rsbuf[0][i] = crc16 / 0x100;
-    i++;
-    p->rsbuf[0][i] = crc16 % 0x100;
-    i++;
-    #endif
-  }
-
-  e = p->_prsf->write(p->rsbuf[0],i);
-  p->_putl->raw_buffer(p->rsbuf[0], e, raw);
-  p->_putl->dprintf("RS485", "raw %s (%d)\r\n", raw, e);
-
-  #if 1
-  e = p->_prsf->read(p->rsbuf[1], 64);
-  if ( e > 0 )
-  {
-    p->_putl->raw_buffer(p->rsbuf[1], e, raw);
-    p->_putl->dprintf("RS485", "raw %s (%d)\r\n", raw, e);
-
-    write_to_server(p, p->rsbuf[1], e);
-  }
-  #endif
-}
-
-
-
-
-
-
-void periodic_call(cRTU* p, void(*f)(cRTU*), int32_t lcount)
-{
-  if ( !( p->count[0] % 0x1F ) )
-  {
-    p->count[1] ++;
-
-    if ( !( p->count[1] % lcount ) )
-    {
-      p->count[1] = 0;
-      f(p);
-    }
-    p->count[0] = 0;
-  }
-}
-
-
-
-#if 1
-void cRTU::Loop()
-{
-  wdt_reset();
-
-  count[0] ++;
-
-  tcpc(this);
-
-  periodic_call(this, rsfp, 6000);
-
-
 }
 #endif
 
